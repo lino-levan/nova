@@ -120,17 +120,17 @@ impl Number {
 
     pub fn is_pos_zero(self, agent: &mut Agent) -> bool {
         match self {
-            Number::Number(n) => agent.heap.get(n).is_sign_positive(),
+            Number::Number(n) => f64::to_bits(0.0) == f64::to_bits(*agent.heap.get(n)),
             Number::Integer(n) => 0i64 == n.into(),
-            Number::Float(n) => n.is_sign_positive(),
+            Number::Float(n) => f32::to_bits(0.0) == f32::to_bits(n),
         }
     }
 
     pub fn is_neg_zero(self, agent: &mut Agent) -> bool {
         match self {
-            Number::Number(n) => agent.heap.get(n).is_sign_negative(),
+            Number::Number(n) => f64::to_bits(-0.0) == f64::to_bits(*agent.heap.get(n)),
             Number::Integer(_) => false,
-            Number::Float(n) => n.is_sign_negative(),
+            Number::Float(n) => f32::to_bits(-0.0) == f32::to_bits(n),
         }
     }
 
@@ -160,12 +160,9 @@ impl Number {
 
     pub fn is_nonzero(self, agent: &mut Agent) -> bool {
         match self {
-            Number::Number(n) => {
-                let n = *agent.heap.get(n);
-                !n.is_sign_negative() && !n.is_sign_positive()
-            }
-            Number::Integer(_) => true,
-            Number::Float(n) => !n.is_sign_negative() && !n.is_sign_positive(),
+            Number::Number(n) => 0.0 != *agent.heap.get(n),
+            Number::Integer(n) => 0i64 != n.into(),
+            Number::Float(n) => 0.0 != n,
         }
     }
 
@@ -197,32 +194,54 @@ impl Number {
         }
     }
 
-    /// A minimal version of ObjectIs when you know the arguments are numbers.
-    pub fn is(self, agent: &mut Agent, y: Self) -> bool {
-        // TODO: Add in spec from Object.is pertaining to numbers.
-        let x = self;
-
-        match (x, y) {
-            (Number::Number(x), Number::Number(y)) => agent.heap.get(x) == agent.heap.get(y),
-            (Number::Number(x), Number::Integer(y)) => *agent.heap.get(x) == y.into_i64() as f64,
-            (Number::Number(x), Number::Float(y)) => *agent.heap.get(x) == y as f64,
-            (Number::Integer(x), Number::Number(y)) => (x.into_i64() as f64) == *agent.heap.get(y),
-            (Number::Integer(x), Number::Integer(y)) => x.into_i64() == y.into_i64(),
-            (Number::Integer(x), Number::Float(y)) => (x.into_i64() as f64) == y as f64,
-            (Number::Float(x), Number::Number(y)) => (x as f64) == *agent.heap.get(y),
-            (Number::Float(x), Number::Integer(y)) => (x as f64) == y.into_i64() as f64,
+    /// Compare two Numbers with each other: This is used when the spec asks if
+    /// `x is y` when talking of Numbers. Generally this is asked after various
+    /// NaN and non-zero checks, depending on which spec algorithm is being used.
+    #[inline(always)]
+    fn is(self, agent: &mut Agent, y: Self) -> bool {
+        match (self, y) {
+            // Optimisation: First compare by-reference; only read from heap if needed.
+            (Number::Number(x), Number::Number(y)) => {
+                x == y || agent.heap.get(x) == agent.heap.get(y)
+            }
+            (Number::Integer(x), Number::Integer(y)) => x == y,
             (Number::Float(x), Number::Float(y)) => x == y,
+            (Number::Number(x), Number::Integer(y)) => {
+                // Optimisation: Integers should never be allocated into the heap as f64s.
+                debug_assert!(*agent.heap.get(x) != y.into_i64() as f64);
+                false
+            }
+            (Number::Number(x), Number::Float(y)) => {
+                // Optimisation: f32s should never be allocated into the heap
+                debug_assert!(*agent.heap.get(x) != y as f64);
+                false
+            }
+            (Number::Integer(x), Number::Number(y)) => {
+                // Optimisation: Integers should never be allocated into the heap as f64s.
+                debug_assert!((x.into_i64() as f64) != *agent.heap.get(y));
+                false
+            }
+            (Number::Integer(x), Number::Float(y)) => {
+                debug_assert!((x.into_i64() as f64) != y as f64);
+                false
+            }
+            (Number::Float(x), Number::Number(y)) => {
+                // Optimisation: f32s should never be allocated into the heap
+                debug_assert!((x as f64) != *agent.heap.get(y));
+                false
+            }
+            (Number::Float(x), Number::Integer(y)) => {
+                debug_assert!((x as f64) != y.into_i64() as f64);
+                false
+            }
         }
     }
 
     pub fn is_odd_integer(self, agent: &mut Agent) -> bool {
         match self {
-            Number::Number(n) => {
-                let n = *agent.heap.get(n);
-                n % 1.0 == 0.0 && n % 2.0 == 0.0
-            }
-            Number::Integer(n) => Into::<i64>::into(n) % 2 == 0,
-            Number::Float(n) => n % 1.0 == 0.0 && n % 2.0 == 0.0,
+            Number::Number(n) => *agent.heap.get(n) % 2.0 == 1.0,
+            Number::Integer(n) => Into::<i64>::into(n) % 2 == 1,
+            Number::Float(n) => n % 2.0 == 1.0,
         }
     }
 
