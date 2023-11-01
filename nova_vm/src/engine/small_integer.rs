@@ -11,10 +11,10 @@ impl std::fmt::Debug for SmallInteger {
 }
 
 impl SmallInteger {
-    pub const MIN_BIGINT: i64 = -2i64.pow(55);
+    pub const MIN_BIGINT: i64 = -(2i64.pow(55));
     pub const MAX_BIGINT: i64 = 2i64.pow(55) - 1;
 
-    pub const MIN_NUMBER: i64 = -2i64.pow(53) + 1;
+    pub const MIN_NUMBER: i64 = -(2i64.pow(53)) + 1;
     pub const MAX_NUMBER: i64 = 2i64.pow(53) - 1;
 
     #[inline]
@@ -28,7 +28,7 @@ impl SmallInteger {
         }
     }
 
-    pub fn from_i64_unchecked(value: i64) -> SmallInteger {
+    fn from_i64_unchecked(value: i64) -> SmallInteger {
         debug_assert!((Self::MIN_BIGINT..=Self::MAX_BIGINT).contains(&value));
         let bytes = i64::to_ne_bytes(value);
 
@@ -56,6 +56,50 @@ impl TryFrom<i64> for SmallInteger {
         }
     }
 }
+
+impl TryFrom<u64> for SmallInteger {
+    type Error = ();
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        if value <= (Self::MAX_BIGINT as u64) {
+            Ok(Self::from_i64_unchecked(value as i64))
+        } else {
+            Err(())
+        }
+    }
+}
+
+macro_rules! from_numeric_type {
+    ($numtype:ty) => {
+        // Checking at compile-time that $numtype fully fits within the range.
+        const _: () = {
+            assert!(
+                <$numtype>::MIN as i64 >= SmallInteger::MIN_BIGINT,
+                concat!(
+                    stringify!($numtype),
+                    " is outside of the SmallInteger range (min)"
+                )
+            );
+            assert!(
+                <$numtype>::MAX as i64 <= SmallInteger::MAX_BIGINT,
+                concat!(
+                    stringify!($numtype),
+                    " is outside of the SmallInteger range (max)"
+                )
+            );
+        };
+        impl From<$numtype> for SmallInteger {
+            fn from(value: $numtype) -> Self {
+                Self::from_i64_unchecked(i64::from(value))
+            }
+        }
+    };
+}
+from_numeric_type!(u8);
+from_numeric_type!(i8);
+from_numeric_type!(u16);
+from_numeric_type!(i16);
+from_numeric_type!(u32);
+from_numeric_type!(i32);
 
 impl From<SmallInteger> for i64 {
     fn from(value: SmallInteger) -> Self {
