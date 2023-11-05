@@ -15,7 +15,7 @@ use crate::{
         execution::{agent::JsError, Agent, JsResult},
         types::{BigInt, Number, Object, PropertyKey, String, Value},
     },
-    heap::WellKnownSymbolIndexes,
+    heap::{CreateHeapData, GetHeapData, WellKnownSymbolIndexes},
 };
 
 use super::{
@@ -482,4 +482,99 @@ pub(crate) fn to_object(_agent: &mut Agent, argument: Value) -> JsResult<Object>
         Value::SmallBigInt(_) => todo!("BigIntObject"),
         _ => Ok(Object::try_from(argument).unwrap()),
     }
+}
+
+/// ### [7.1.19 ToPropertyKey ( argument )](https://tc39.es/ecma262/#sec-topropertykey)
+pub(crate) fn to_property_key(agent: &mut Agent, argument: Value) -> JsResult<Value> {
+    // 1. Let key be ? ToPrimitive(argument, hint String).
+    let key = to_primitive(agent, argument, Some(PreferredType::String))?;
+
+    // 2. If Type(key) is Symbol, then
+    if key.is_symbol() {
+        // a. Return key.
+        return Ok(key);
+    }
+
+    // 3. Return ! ToString(key).
+    Ok(to_string(agent, key).unwrap().into())
+}
+
+/// ### [7.1.20 ToLength ( argument )](https://tc39.es/ecma262/#sec-tolength)
+pub(crate) fn to_length(agent: &mut Agent, argument: Value) -> JsResult<Number> {
+    // 1. Let len be ? ToIntegerOrInfinity(argument).
+    let len = to_integer_or_infinity(agent, argument)?;
+
+    // 2. If len ≤ 0, return +0𝔽.
+    match len {
+        Number::Integer(n) if n.into_i64() <= 0 => {
+            return Ok(0.0.into());
+        }
+        Number::Float(n) if n <= 0.0 => {
+            return Ok(0.0.into());
+        }
+        Number::Number(n) if *agent.heap.get(n) < 0.0 => {
+            return Ok(0.0.into());
+        }
+        _ => {}
+    }
+
+    // 3. Return 𝔽(min(len, 2**53 - 1)).
+    let max = 2.0f64.powi(53) - 1.0;
+    Ok(match len {
+        Number::Integer(n) => n.into_i64().min(max as i64).into(),
+        Number::Float(n) => n.min(max as f32).into(),
+        Number::Number(n) => agent.heap.create(agent.heap.get(n).min(max)),
+    })
+}
+
+/// ### [7.1.21 CanonicalNumericIndexString ( argument )](https://tc39.es/ecma262/#sec-canonicalnumericindexstring)
+pub(crate) fn canonical_numeric_index_string(
+    agent: &mut Agent,
+    argument: String,
+) -> Option<Number> {
+    // 1. If argument is "-0", return -0𝔽.
+    if argument == String::from_small_string("-0") {
+        return Some(Number::from(-0.0));
+    }
+
+    // 2. Let n be ! ToNumber(argument).
+    let n = to_number(agent, argument.into()).unwrap();
+
+    // 3. If ! ToString(n) is argument, return n.
+    if to_string(agent, n.into()).unwrap() == argument {
+        return Some(n);
+    }
+
+    // 4. Return undefined.
+    None
+}
+
+/// ### [7.1.22 ToIndex ( value )](https://tc39.es/ecma262/#sec-toindex)
+pub(crate) fn to_index(agent: &mut Agent, argument: Value) -> JsResult<Number> {
+    // 1. Let integer be ? ToIntegerOrInfinity(value).
+    let integer = to_integer_or_infinity(agent, argument)?;
+
+    // 2. If integer is not in the inclusive interval from 0 to 2**53 - 1, throw a RangeError exception.
+    let max = 2.0f64.powi(53) - 1.0;
+    match integer {
+        Number::Integer(n) if !(0..=(max as i64)).contains(&n.into_i64()) => {
+            return Err(todo!(
+                "RangeError: placeholder. implement the Error objects :)"
+            ));
+        }
+        Number::Float(n) if !(0.0f32..=(max as f32)).contains(&n) => {
+            return Err(todo!(
+                "RangeError: placeholder. implement the Error objects :)"
+            ));
+        }
+        Number::Number(n) if !(0.0f64..=max).contains(agent.heap.get(n)) => {
+            return Err(todo!(
+                "RangeError: placeholder. implement the Error objects :)"
+            ));
+        }
+        _ => {}
+    }
+
+    // 3. Return integer.
+    Ok(integer)
 }
